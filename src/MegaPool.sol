@@ -46,11 +46,7 @@ contract MegaPool {
         uint256 op;
         while (ptr < endPtr) {
             unchecked {
-                // Read op
-                assembly {
-                    op := shr(0xf8, calldataload(ptr))
-                }
-                ptr++;
+                (ptr, op) = _readUint(ptr, 1);
 
                 uint256 mop = op & Ops.MASK_OP;
                 if (mop == Ops.SWAP) {
