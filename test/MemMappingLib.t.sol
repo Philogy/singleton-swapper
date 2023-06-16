@@ -2,13 +2,13 @@
 pragma solidity 0.8.19;
 
 import {Test} from "forge-std/Test.sol";
-import {MemMappingLib, MemMapping} from "src/utils/MemMappingLib.sol";
+import {MemMappingLib, MemMapping} from "src/libs/MemMappingLib.sol";
 
 /// @author philogy <https://github.com/philogy>
 contract MemMappingTest is Test {
     function setUp() public {}
 
-    function testSimple() public {
+    function testSimpleMap() public {
         MemMapping map = MemMappingLib.init(64);
 
         (bool isNull, uint256 value) = map.get(34);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {MemMapping, MapKVPair} from "./MemMappingLib.sol";
+import {MemMappingLib, MemMapping, MapKVPair} from "./MemMappingLib.sol";
 
 struct Accounter {
     MemMapping map;
@@ -12,6 +12,10 @@ using AccounterLib for Accounter global;
 
 /// @author philogy <https://github.com/philogy>
 library AccounterLib {
+    function init(Accounter memory self, uint256 mapSize) internal pure {
+        self.map = MemMappingLib.init(mapSize);
+    }
+
     function accountChange(Accounter memory self, address asset, int256 change) internal pure {
         uint256 key = _toKey(asset);
         MapKVPair pair = self.map.getPair(key);

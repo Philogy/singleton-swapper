@@ -2,7 +2,7 @@
 pragma solidity 0.8.19;
 
 import {Test} from "forge-std/Test.sol";
-import {SwapLib} from "src/utils/SwapLib.sol";
+import {SwapLib} from "src/libs/SwapLib.sol";
 
 /// @author philogy <https://github.com/philogy>
 contract SwapLibTest is Test {

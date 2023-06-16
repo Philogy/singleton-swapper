@@ -4,4 +4,6 @@ out = "out"
 libs = ["lib"]
 gasLimit = 30000000
 
+optimizer_runs = 0xffffffff
+
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
