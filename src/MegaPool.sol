@@ -63,6 +63,21 @@ contract MegaPool {
         if (tokenDeltas.totalNonZero != 0) revert LeftoverDelta();
     }
 
+    function getPool(address token0, address token1)
+        external
+        view
+        returns (uint128 reserves0, uint128 reserves1, uint256 totalLiquidity)
+    {
+        Pool storage pool = _getPool(token0, token1);
+        reserves0 = pool.reserves0;
+        reserves1 = pool.reserves1;
+        totalLiquidity = pool.totalLiquidity;
+    }
+
+    function getPosition(address token0, address token1, address owner) external view returns (uint256) {
+        return _getPool(token0, token1).positions[owner];
+    }
+
     function _interpretOp(Accounter memory tokenDeltas, uint256 ptr, uint256 op) internal returns (uint256) {
         uint256 mop = op & Ops.MASK_OP;
         if (mop == Ops.SWAP) {
