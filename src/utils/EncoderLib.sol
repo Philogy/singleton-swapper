@@ -29,7 +29,7 @@ library EncoderLib {
             mstore(initialOffset, shl(248, op))
             mstore(add(initialOffset, 1), shl(96, token0))
             mstore(add(initialOffset, 21), shl(96, token1))
-            mstore(add(initialOffset, 41), zeroForOne)
+            mstore(add(initialOffset, 41), shl(248, zeroForOne))
             mstore(add(initialOffset, 42), shl(128, amount))
         }
 
@@ -69,13 +69,28 @@ library EncoderLib {
         uint256 op = Ops.SEND;
         assembly {
             let length := mload(self)
-            mstore(self, add(length, 56))
+            mstore(self, add(length, 57))
             let initialOffset := add(add(self, 0x20), length)
 
             mstore(initialOffset, shl(248, op))
             mstore(add(initialOffset, 1), shl(96, token))
             mstore(add(initialOffset, 21), shl(96, to))
             mstore(add(initialOffset, 41), shl(128, amount))
+        }
+
+        return self;
+    }
+
+    function appendReceive(bytes memory self, address token, uint256 amount) internal pure returns (bytes memory) {
+        uint256 op = Ops.RECEIVE;
+        assembly {
+            let length := mload(self)
+            mstore(self, add(length, 37))
+            let initialOffset := add(add(self, 0x20), length)
+
+            mstore(initialOffset, shl(248, op))
+            mstore(add(initialOffset, 1), shl(96, token))
+            mstore(add(initialOffset, 21), shl(128, amount))
         }
 
         return self;

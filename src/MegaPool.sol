@@ -182,6 +182,7 @@ contract MegaPool {
         uint256 totalReceived = directBalance - reserves;
 
         accounter.accountChange(token, -totalReceived.toInt256());
+        totalReservesOf[token] = directBalance;
 
         return ptr;
     }

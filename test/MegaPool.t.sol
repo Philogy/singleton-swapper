@@ -28,15 +28,29 @@ contract MegaPoolTest is Test, IGiver {
 
         if (token0 >= token1) (token0, token1) = (token1, token0);
 
-        address user = makeAddr("user");
-
         token0.mint(address(this), 100e18);
         token1.mint(address(this), 100e18);
 
-        bytes memory program =
-            EncoderLib.init(64).appendAddLiquidity(address(token0), address(token1), user, 10e18, 10e18).done();
+        // forgefmt: disable-next-item
+        bytes memory program = EncoderLib.init(64)
+            .appendAddLiquidity(address(token0), address(token1), address(this), 10e18, 10e18)
+            .appendReceive(address(token0), 10e18)
+            .appendReceive(address(token1), 10e18)
+            .done();
 
         pool.execute(program);
+
+        // forgefmt: disable-next-item
+        program = EncoderLib.init(64)
+            .appendSwap(address(token0), address(token1), true, 0.1e18)
+            .appendReceive(address(token0), 0.1e18)
+            .appendSend(address(token1), address(this), 0.09900990099009901e18)
+            .done();
+        pool.execute(program);
+
+        (uint256 x, uint256 y,) = pool.getPool(address(token0), address(token1));
+        emit log_named_decimal_uint("x", x, 18);
+        emit log_named_decimal_uint("y", y, 18);
     }
 
     function give(address token, uint256 amount) external returns (bytes4) {
