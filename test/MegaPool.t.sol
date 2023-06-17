@@ -23,13 +23,13 @@ contract MegaPoolTest is Test, IGiver {
         MockERC20 token0 = _newToken("token_0");
         MockERC20 token1 = _newToken("token_1");
 
-        emit log_named_address("address(token0)", address(token0));
-        emit log_named_address("address(token1)", address(token1));
-
         if (token0 >= token1) (token0, token1) = (token1, token0);
 
         token0.mint(address(this), 100e18);
         token1.mint(address(this), 100e18);
+
+        uint256 startX = 10e18;
+        uint256 startY = 10e18;
 
         // forgefmt: disable-next-item
         bytes memory program = EncoderLib.init(64)
@@ -40,17 +40,59 @@ contract MegaPoolTest is Test, IGiver {
 
         pool.execute(program);
 
+        uint256 inAmount = 0.1e18;
+        uint256 outAmount = startY - (startX * startY) / (startX + inAmount);
+
         // forgefmt: disable-next-item
         program = EncoderLib.init(64)
-            .appendSwap(address(token0), address(token1), true, 0.1e18)
-            .appendReceive(address(token0), 0.1e18)
-            .appendSend(address(token1), address(this), 0.09900990099009901e18)
+            .appendSwap(address(token0), address(token1), true, inAmount)
+            .appendReceive(address(token0), inAmount)
+            .appendSend(address(token1), address(this), outAmount)
             .done();
         pool.execute(program);
 
         (uint256 x, uint256 y,) = pool.getPool(address(token0), address(token1));
-        emit log_named_decimal_uint("x", x, 18);
-        emit log_named_decimal_uint("y", y, 18);
+        assertEq(x, startX + inAmount);
+        assertEq(y, startY - outAmount);
+    }
+
+    function testMultiHop() public {
+        MockERC20[] memory tokens = new MockERC20[](4);
+        tokens[0] = _newToken("token_0");
+        tokens[1] = _newToken("token_1");
+        tokens[2] = _newToken("token_2");
+        tokens[3] = _newToken("token_3");
+
+        for (uint256 i; i < tokens.length; i++) {
+            tokens[i].mint(address(this), 100e18);
+        }
+
+        bytes memory program = EncoderLib.init(16);
+        for (uint256 i; i < tokens.length - 1; i++) {
+            address token0 = address(tokens[i]);
+            address token1 = address(tokens[i + 1]);
+            // forgefmt: disable-next-item
+            program
+                .appendAddLiquidity(token0, token1, address(this), 10e18, 10e18)
+                .appendReceive(token0, 10e18)
+                .appendReceive(token1, 10e18);
+        }
+        program.done();
+
+        pool.execute(program);
+
+        // forgefmt: disable-next-item
+        program = EncoderLib.init(16)
+            .appendSwapHead(address(tokens[0]), address(tokens[1]), 0.1e18, true)
+            .appendSwapHop(address(tokens[2]))
+            .appendSwapHop(address(tokens[3]))
+            .appendSend(address(tokens[3]), address(this), 0.0970873786407767e18)
+            .appendReceive(address(tokens[0]), 0.1e18)
+            .done();
+
+        emit log_named_bytes("program", program);
+
+        pool.execute(program);
     }
 
     function give(address token, uint256 amount) external returns (bytes4) {
@@ -64,3 +106,22 @@ contract MegaPoolTest is Test, IGiver {
         return newToken;
     }
 }
+/*
+0010
+- 51
+    2e234dae75c793f67a35089c9d99245e1c58470b
+    f62849f9a0b5bf2913b396098f7c7019b51a820a
+    0000000000000000016345785d8a0000
+- 60
+    5991a2df15a8f6a256d3ec51e99254cd3fb576a9
+- 60
+    c7183455a4c133ae270771860664b6b7ec320bb1
+- 30
+    c7183455a4c133ae270771860664b6b7ec320bb1
+    7fa9385be102ac3eac297483dd6233d62b3e1496
+    00000000000000000158ec74dc0eadfc
+- 40
+    2e234dae75c793f67a35089c9d99245e1c58470b
+    0000000000000000016345785d8a0000
+*/
+

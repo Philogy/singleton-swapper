@@ -29,6 +29,16 @@ library AccounterLib {
         pair.set(key, uint256(newTotalChange));
     }
 
+    function resetChange(Accounter memory self, address asset) internal pure returns (int256 change) {
+        uint256 key = _toKey(asset);
+        MapKVPair pair = self.map.getPair(key);
+        change = int256(pair.value());
+
+        if (change != 0) self.totalNonZero--;
+
+        pair.set(key, 0);
+    }
+
     function _toKey(address asset) private pure returns (uint256 k) {
         assembly {
             k := asset

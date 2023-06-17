@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.19;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
@@ -7,6 +7,7 @@ import {Pool} from "./libs/PoolLib.sol";
 import {Accounter} from "./libs/AccounterLib.sol";
 import {BPS} from "./libs/SwapLib.sol";
 import {Ops} from "./Ops.sol";
+import {console2 as console} from "forge-std/console2.sol";
 
 import {IGiver} from "./interfaces/IGiver.sol";
 
@@ -26,6 +27,7 @@ contract MegaPool {
     error InvalidOp(uint256 op);
     error LeftoverDelta();
     error InvalidGive();
+    error NegativeAmount();
 
     constructor(uint256 feeBps) {
         require(feeBps < BPS);
@@ -41,14 +43,19 @@ contract MegaPool {
         reentrancyLock = 1;
     }
 
+    struct State {
+        Accounter tokenDeltas;
+        address lastToken;
+    }
+
     function execute(bytes calldata program) external nonReentrant {
         (uint256 ptr, uint256 endPtr) = _getPc(program);
 
-        Accounter memory tokenDeltas;
+        State memory state;
         {
             uint256 hashMapSize;
             (ptr, hashMapSize) = _readUint(ptr, 2);
-            tokenDeltas.init(hashMapSize);
+            state.tokenDeltas.init(hashMapSize);
         }
 
         uint256 op;
@@ -56,11 +63,11 @@ contract MegaPool {
             unchecked {
                 (ptr, op) = _readUint(ptr, 1);
 
-                ptr = _interpretOp(tokenDeltas, ptr, op);
+                ptr = _interpretOp(state, ptr, op);
             }
         }
 
-        if (tokenDeltas.totalNonZero != 0) revert LeftoverDelta();
+        if (state.tokenDeltas.totalNonZero != 0) revert LeftoverDelta();
     }
 
     function getPool(address token0, address token1)
@@ -78,18 +85,22 @@ contract MegaPool {
         return _getPool(token0, token1).positions[owner];
     }
 
-    function _interpretOp(Accounter memory tokenDeltas, uint256 ptr, uint256 op) internal returns (uint256) {
+    function _interpretOp(State memory state, uint256 ptr, uint256 op) internal returns (uint256) {
         uint256 mop = op & Ops.MASK_OP;
         if (mop == Ops.SWAP) {
-            ptr = _swap(tokenDeltas, ptr);
+            ptr = _swap(state, ptr);
         } else if (mop == Ops.ADD_LIQ) {
-            ptr = _addLiquidity(tokenDeltas, ptr);
+            ptr = _addLiquidity(state, ptr);
         } else if (mop == Ops.RM_LIQ) {
-            ptr = _removeLiquidity(tokenDeltas, ptr);
+            ptr = _removeLiquidity(state, ptr);
         } else if (mop == Ops.SEND) {
-            ptr = _send(tokenDeltas, ptr);
+            ptr = _send(state, ptr);
         } else if (mop == Ops.RECEIVE) {
-            ptr = _receive(tokenDeltas, ptr);
+            ptr = _receive(state, ptr);
+        } else if (mop == Ops.SWAP_HEAD) {
+            ptr = _swapHead(state, ptr, op);
+        } else if (mop == Ops.SWAP_HOP) {
+            ptr = _swapHop(state, ptr, op);
         } else {
             revert InvalidOp(op);
         }
@@ -97,7 +108,7 @@ contract MegaPool {
         return ptr;
     }
 
-    function _swap(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+    function _swap(State memory state, uint256 ptr) internal returns (uint256) {
         address token0;
         address token1;
         uint256 zeroForOne;
@@ -109,13 +120,13 @@ contract MegaPool {
 
         (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne != 0, amount, FEE_BPS);
 
-        accounter.accountChange(token0, delta0);
-        accounter.accountChange(token1, delta1);
+        state.tokenDeltas.accountChange(token0, delta0);
+        state.tokenDeltas.accountChange(token1, delta1);
 
         return ptr;
     }
 
-    function _addLiquidity(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+    function _addLiquidity(State memory state, uint256 ptr) internal returns (uint256) {
         address token0;
         address token1;
         address to;
@@ -129,13 +140,13 @@ contract MegaPool {
 
         (, int256 delta0, int256 delta1) = _getPool(token0, token1).addLiquidity(to, maxAmount0, maxAmount1);
 
-        accounter.accountChange(token0, delta0);
-        accounter.accountChange(token1, delta1);
+        state.tokenDeltas.accountChange(token0, delta0);
+        state.tokenDeltas.accountChange(token1, delta1);
 
         return ptr;
     }
 
-    function _removeLiquidity(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+    function _removeLiquidity(State memory state, uint256 ptr) internal returns (uint256) {
         address token0;
         address token1;
         uint256 liq;
@@ -145,13 +156,13 @@ contract MegaPool {
 
         (int256 delta0, int256 delta1) = _getPool(token0, token1).removeLiquidity(msg.sender, liq);
 
-        accounter.accountChange(token0, delta0);
-        accounter.accountChange(token1, delta1);
+        state.tokenDeltas.accountChange(token0, delta0);
+        state.tokenDeltas.accountChange(token1, delta1);
 
         return ptr;
     }
 
-    function _send(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+    function _send(State memory state, uint256 ptr) internal returns (uint256) {
         address token;
         address to;
         uint256 amount;
@@ -160,14 +171,14 @@ contract MegaPool {
         (ptr, to) = _readAddress(ptr);
         (ptr, amount) = _readUint(ptr, 16);
 
-        accounter.accountChange(token, amount.toInt256());
+        state.tokenDeltas.accountChange(token, amount.toInt256());
         token.safeTransfer(to, amount);
         totalReservesOf[token] -= amount;
 
         return ptr;
     }
 
-    function _receive(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+    function _receive(State memory state, uint256 ptr) internal returns (uint256) {
         address token;
         uint256 amount;
 
@@ -181,8 +192,52 @@ contract MegaPool {
         uint256 directBalance = token.balanceOf(address(this));
         uint256 totalReceived = directBalance - reserves;
 
-        accounter.accountChange(token, -totalReceived.toInt256());
+        state.tokenDeltas.accountChange(token, -totalReceived.toInt256());
         totalReservesOf[token] = directBalance;
+
+        return ptr;
+    }
+
+    function _swapHead(State memory state, uint256 ptr, uint256 op) internal returns (uint256) {
+        address token0;
+        address token1;
+        uint256 amount;
+        (ptr, token0) = _readAddress(ptr);
+        (ptr, token1) = _readAddress(ptr);
+        (ptr, amount) = _readUint(ptr, 16);
+
+        bool zeroForOne = (op & Ops.SWAP_HEAD_DIR) != 0;
+
+        (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne, amount, FEE_BPS);
+        state.lastToken = zeroForOne ? token1 : token0;
+
+        console.log("");
+        console.log("token0: %s   delta0: %s%s", token0, sign(delta0), abs(delta0));
+        console.log("token1: %s   delta1: %s%s", token1, sign(delta1), abs(delta1));
+
+        state.tokenDeltas.accountChange(token0, delta0);
+        state.tokenDeltas.accountChange(token1, delta1);
+
+        return ptr;
+    }
+
+    function _swapHop(State memory state, uint256 ptr, uint256) internal returns (uint256) {
+        address lastToken = state.lastToken;
+        address nextToken;
+        (ptr, nextToken) = _readAddress(ptr);
+
+        (address token0, address token1, bool zeroForOne) =
+            nextToken > lastToken ? (lastToken, nextToken, true) : (nextToken, lastToken, false);
+
+        int256 delta = state.tokenDeltas.resetChange(lastToken);
+        if (delta > 0) revert NegativeAmount();
+
+        (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne, uint256(-delta), FEE_BPS);
+        console.log("");
+        console.log("token0: %s   delta0: %s%s", token0, sign(delta0), abs(delta0));
+        console.log("token1: %s   delta1: %s%s", token1, sign(delta1), abs(delta1));
+        state.lastToken = nextToken;
+        state.tokenDeltas.accountChange(nextToken, zeroForOne ? delta1 : delta0);
 
         return ptr;
     }
@@ -215,9 +270,19 @@ contract MegaPool {
             let freeMem := mload(0x40)
             mstore(0x00, pools.slot)
             mstore(0x20, token0)
-            mstore(0x40, token0)
+            mstore(0x40, token1)
             pool.slot := keccak256(0x00, 0x60)
             mstore(0x40, freeMem)
         }
+    }
+
+    function sign(int256 x) internal pure returns (string memory) {
+        if (x < 0) return "-";
+        if (x > 0) return "+";
+        return "";
+    }
+
+    function abs(int256 x) internal pure returns (uint256) {
+        return x < 0 ? uint256(-x) : uint256(x);
     }
 }
