@@ -90,8 +90,6 @@ contract MegaPoolTest is Test, IGiver {
             .appendReceive(address(tokens[0]), 0.1e18)
             .done();
 
-        emit log_named_bytes("program", program);
-
         pool.execute(program);
     }
 
@@ -106,21 +104,3 @@ contract MegaPoolTest is Test, IGiver {
         return newToken;
     }
 }
-/*
-0010
-- 51
-    2e234dae75c793f67a35089c9d99245e1c58470b
-    f62849f9a0b5bf2913b396098f7c7019b51a820a
-    0000000000000000016345785d8a0000
-- 60
-    5991a2df15a8f6a256d3ec51e99254cd3fb576a9
-- 60
-    c7183455a4c133ae270771860664b6b7ec320bb1
-- 30
-    c7183455a4c133ae270771860664b6b7ec320bb1
-    7fa9385be102ac3eac297483dd6233d62b3e1496
-    00000000000000000158ec74dc0eadfc
-- 40
-    2e234dae75c793f67a35089c9d99245e1c58470b
-    0000000000000000016345785d8a0000
-*/

@@ -7,7 +7,6 @@ import {Pool} from "./libs/PoolLib.sol";
 import {Accounter} from "./libs/AccounterLib.sol";
 import {BPS} from "./libs/SwapLib.sol";
 import {Ops} from "./Ops.sol";
-import {console2 as console} from "forge-std/console2.sol";
 
 import {IGiver} from "./interfaces/IGiver.sol";
 
@@ -88,7 +87,7 @@ contract MegaPool {
     function _interpretOp(State memory state, uint256 ptr, uint256 op) internal returns (uint256) {
         uint256 mop = op & Ops.MASK_OP;
         if (mop == Ops.SWAP) {
-            ptr = _swap(state, ptr);
+            ptr = _swap(state, ptr, op);
         } else if (mop == Ops.ADD_LIQ) {
             ptr = _addLiquidity(state, ptr);
         } else if (mop == Ops.RM_LIQ) {
@@ -108,17 +107,16 @@ contract MegaPool {
         return ptr;
     }
 
-    function _swap(State memory state, uint256 ptr) internal returns (uint256) {
+    function _swap(State memory state, uint256 ptr, uint256 op) internal returns (uint256) {
         address token0;
         address token1;
-        uint256 zeroForOne;
         uint256 amount;
         (ptr, token0) = _readAddress(ptr);
         (ptr, token1) = _readAddress(ptr);
-        (ptr, zeroForOne) = _readUint(ptr, 1);
+        bool zeroForOne = (op & Ops.SWAP_DIR) != 0;
         (ptr, amount) = _readUint(ptr, 16);
 
-        (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne != 0, amount, FEE_BPS);
+        (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne, amount, FEE_BPS);
 
         state.tokenDeltas.accountChange(token0, delta0);
         state.tokenDeltas.accountChange(token1, delta1);
@@ -206,14 +204,10 @@ contract MegaPool {
         (ptr, token1) = _readAddress(ptr);
         (ptr, amount) = _readUint(ptr, 16);
 
-        bool zeroForOne = (op & Ops.SWAP_HEAD_DIR) != 0;
+        bool zeroForOne = (op & Ops.SWAP_DIR) != 0;
 
         (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne, amount, FEE_BPS);
         state.lastToken = zeroForOne ? token1 : token0;
-
-        console.log("");
-        console.log("token0: %s   delta0: %s%s", token0, sign(delta0), abs(delta0));
-        console.log("token1: %s   delta1: %s%s", token1, sign(delta1), abs(delta1));
 
         state.tokenDeltas.accountChange(token0, delta0);
         state.tokenDeltas.accountChange(token1, delta1);
@@ -233,9 +227,6 @@ contract MegaPool {
         if (delta > 0) revert NegativeAmount();
 
         (int256 delta0, int256 delta1) = _getPool(token0, token1).swap(zeroForOne, uint256(-delta), FEE_BPS);
-        console.log("");
-        console.log("token0: %s   delta0: %s%s", token0, sign(delta0), abs(delta0));
-        console.log("token1: %s   delta1: %s%s", token1, sign(delta1), abs(delta1));
         state.lastToken = nextToken;
         state.tokenDeltas.accountChange(nextToken, zeroForOne ? delta1 : delta0);
 

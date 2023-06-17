@@ -20,17 +20,16 @@ library EncoderLib {
         pure
         returns (bytes memory)
     {
-        uint256 op = Ops.SWAP;
+        uint256 op = Ops.SWAP | (zeroForOne ? Ops.SWAP_DIR : 0);
         assembly {
             let length := mload(self)
-            mstore(self, add(length, 58))
+            mstore(self, add(length, 57))
             let initialOffset := add(add(self, 0x20), length)
 
             mstore(initialOffset, shl(248, op))
             mstore(add(initialOffset, 1), shl(96, token0))
             mstore(add(initialOffset, 21), shl(96, token1))
-            mstore(add(initialOffset, 41), shl(248, zeroForOne))
-            mstore(add(initialOffset, 42), shl(128, amount))
+            mstore(add(initialOffset, 41), shl(128, amount))
         }
 
         return self;
@@ -59,6 +58,28 @@ library EncoderLib {
             mstore(add(initialOffset, 41), shl(96, to))
             mstore(add(initialOffset, 61), shl(128, maxAmount0))
             mstore(add(initialOffset, 77), shl(128, maxAmount1))
+        }
+
+        return self;
+    }
+
+    function appendRemoveLiquidity(bytes memory self, address token0, address token1, uint256 liquidity)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        uint256 op = Ops.RM_LIQ;
+
+        (token0, token1) = sort(token0, token1);
+        assembly {
+            let length := mload(self)
+            mstore(self, add(length, 73))
+            let initialOffset := add(add(self, 0x20), length)
+
+            mstore(initialOffset, shl(248, op))
+            mstore(add(initialOffset, 1), shl(96, token0))
+            mstore(add(initialOffset, 21), shl(96, token1))
+            mstore(add(initialOffset, 41), liquidity)
         }
 
         return self;
@@ -105,7 +126,7 @@ library EncoderLib {
         returns (bytes memory)
     {
         (token0, token1, zeroForOne) = sort(token0, token1, zeroForOne);
-        uint256 op = Ops.SWAP_HEAD | (zeroForOne ? Ops.SWAP_HEAD_DIR : 0);
+        uint256 op = Ops.SWAP_HEAD | (zeroForOne ? Ops.SWAP_DIR : 0);
         assembly {
             let length := mload(self)
             mstore(self, add(length, 57))
@@ -144,5 +165,9 @@ library EncoderLib {
 
     function sort(address token0, address token1, bool zeroForOne) internal pure returns (address, address, bool) {
         return token1 > token0 ? (token0, token1, zeroForOne) : (token1, token0, !zeroForOne);
+    }
+
+    function sort(address token0, address token1) internal pure returns (address, address) {
+        return token1 > token0 ? (token0, token1) : (token1, token0);
     }
 }
