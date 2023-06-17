@@ -37,30 +37,41 @@ library PoolLib {
         returns (uint256 newLiquidity, int256 delta0, int256 delta1)
     {
         uint256 total = self.totalLiquidity;
-        uint256 reserves0 = self.reserves0;
-        uint256 reserves1 = self.reserves1;
-
-        uint256 liq0 = total * maxAmount0 / reserves0;
-        uint256 liq1 = total * maxAmount1 / reserves1;
 
         uint256 amount0;
         uint256 amount1;
 
-        if (liq0 > liq1) {
-            newLiquidity = liq1;
-            amount0 = reserves0 * amount1 / reserves1;
-            amount1 = maxAmount1;
-        } else {
-            // liq0 <= liq1
-            newLiquidity = liq0;
+        if (total == 0) {
+            newLiquidity = Math.sqrt(maxAmount0 * maxAmount1);
             amount0 = maxAmount0;
-            amount1 = reserves1 * amount0 / reserves0;
+            amount1 = maxAmount1;
+
+            self.totalLiquidity = newLiquidity;
+            self.positions[to] = newLiquidity;
+            self.reserves0 = amount0.toUint128();
+            self.reserves1 = amount1.toUint128();
+        } else {
+            uint256 reserves0 = self.reserves0;
+            uint256 reserves1 = self.reserves1;
+            uint256 liq0 = total * maxAmount0 / reserves0;
+            uint256 liq1 = total * maxAmount1 / reserves1;
+
+            if (liq0 > liq1) {
+                newLiquidity = liq1;
+                amount0 = reserves0 * amount1 / reserves1;
+                amount1 = maxAmount1;
+            } else {
+                // liq0 <= liq1
+                newLiquidity = liq0;
+                amount0 = maxAmount0;
+                amount1 = reserves1 * amount0 / reserves0;
+            }
+            self.totalLiquidity = total + newLiquidity;
+            self.positions[to] += newLiquidity;
+            self.reserves0 = (reserves0 + amount0).toUint128();
+            self.reserves1 = (reserves1 + amount1).toUint128();
         }
 
-        self.totalLiquidity = total + newLiquidity;
-        self.positions[to] += newLiquidity;
-        self.reserves0 = (reserves0 + amount0).toUint128();
-        self.reserves1 = (reserves1 + amount1).toUint128();
         delta0 = amount0.toInt256();
         delta1 = amount1.toInt256();
     }

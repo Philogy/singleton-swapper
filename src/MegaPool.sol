@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {Pool} from "./libs/PoolLib.sol";
 import {Accounter} from "./libs/AccounterLib.sol";
 import {BPS} from "./libs/SwapLib.sol";
 import {Ops} from "./Ops.sol";
 
+import {IGiver} from "./interfaces/IGiver.sol";
+
 /// @author philogy <https://github.com/philogy>
 contract MegaPool {
+    using SafeTransferLib for address;
+    using SafeCastLib for uint256;
+
     uint256 public immutable FEE_BPS;
 
     uint256 internal reentrancyLock = 1;
@@ -18,6 +25,7 @@ contract MegaPool {
     error InvalidTokens();
     error InvalidOp(uint256 op);
     error LeftoverDelta();
+    error InvalidGive();
 
     constructor(uint256 feeBps) {
         require(feeBps < BPS);
@@ -48,20 +56,30 @@ contract MegaPool {
             unchecked {
                 (ptr, op) = _readUint(ptr, 1);
 
-                uint256 mop = op & Ops.MASK_OP;
-                if (mop == Ops.SWAP) {
-                    ptr = _swap(tokenDeltas, ptr);
-                } else if (mop == Ops.ADD_LIQ) {
-                    ptr = _addLiquidity(tokenDeltas, ptr);
-                } else if (mop == Ops.RM_LIQ) {
-                    ptr = _removeLiquidity(tokenDeltas, ptr);
-                } else if (mop == Ops.SEND) {} else if (mop == Ops.RECEIVE) {} else {
-                    revert InvalidOp(op);
-                }
+                ptr = _interpretOp(tokenDeltas, ptr, op);
             }
         }
 
         if (tokenDeltas.totalNonZero != 0) revert LeftoverDelta();
+    }
+
+    function _interpretOp(Accounter memory tokenDeltas, uint256 ptr, uint256 op) internal returns (uint256) {
+        uint256 mop = op & Ops.MASK_OP;
+        if (mop == Ops.SWAP) {
+            ptr = _swap(tokenDeltas, ptr);
+        } else if (mop == Ops.ADD_LIQ) {
+            ptr = _addLiquidity(tokenDeltas, ptr);
+        } else if (mop == Ops.RM_LIQ) {
+            ptr = _removeLiquidity(tokenDeltas, ptr);
+        } else if (mop == Ops.SEND) {
+            ptr = _send(tokenDeltas, ptr);
+        } else if (mop == Ops.RECEIVE) {
+            ptr = _receive(tokenDeltas, ptr);
+        } else {
+            revert InvalidOp(op);
+        }
+
+        return ptr;
     }
 
     function _swap(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
@@ -118,6 +136,41 @@ contract MegaPool {
         return ptr;
     }
 
+    function _send(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+        address token;
+        address to;
+        uint256 amount;
+
+        (ptr, token) = _readAddress(ptr);
+        (ptr, to) = _readAddress(ptr);
+        (ptr, amount) = _readUint(ptr, 16);
+
+        accounter.accountChange(token, amount.toInt256());
+        token.safeTransfer(to, amount);
+        totalReservesOf[token] -= amount;
+
+        return ptr;
+    }
+
+    function _receive(Accounter memory accounter, uint256 ptr) internal returns (uint256) {
+        address token;
+        uint256 amount;
+
+        (ptr, token) = _readAddress(ptr);
+        (ptr, amount) = _readUint(ptr, 16);
+
+        if (IGiver(msg.sender).give(token, amount) != IGiver.give.selector) {
+            revert InvalidGive();
+        }
+        uint256 reserves = totalReservesOf[token];
+        uint256 directBalance = token.balanceOf(address(this));
+        uint256 totalReceived = directBalance - reserves;
+
+        accounter.accountChange(token, -totalReceived.toInt256());
+
+        return ptr;
+    }
+
     function _readAddress(uint256 ptr) internal pure returns (uint256 newPtr, address addr) {
         uint256 rawVal;
         (newPtr, rawVal) = _readUint(ptr, 20);
@@ -128,7 +181,7 @@ contract MegaPool {
         require(size >= 1 && size <= 32);
         assembly {
             newPtr := add(ptr, size)
-            x := shr(shl(8, sub(32, size)), calldataload(ptr))
+            x := shr(shl(3, sub(32, size)), calldataload(ptr))
         }
     }
 
