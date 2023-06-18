@@ -39,6 +39,11 @@ library AccounterLib {
         pair.set(key, 0);
     }
 
+    function getChange(Accounter memory self, address asset) internal pure returns (int256) {
+        (, uint256 rawValue) = self.map.get(_toKey(asset));
+        return int256(rawValue);
+    }
+
     function _toKey(address asset) private pure returns (uint256 k) {
         assembly {
             k := asset
